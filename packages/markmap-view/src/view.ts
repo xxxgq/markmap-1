@@ -1,6 +1,6 @@
 import type * as d3 from 'd3';
 import {
-  linkHorizontal,
+  linkVertical,
   max,
   min,
   minIndex,
@@ -36,7 +36,7 @@ const SELECTOR_NODE = 'g.markmap-node';
 const SELECTOR_LINK = 'path.markmap-link';
 const SELECTOR_HIGHLIGHT = 'g.markmap-highlight';
 
-const linkShape = linkHorizontal();
+const linkShape = linkVertical();
 
 function minBy(numbers: number[], by: (v: number) => number): number {
   const index = minIndex(numbers, by);
@@ -212,6 +212,7 @@ export class Markmap {
     return node as INode;
   }
 
+  // 修改 _relayout 方法中的布局配置
   private _relayout() {
     if (!this.state.data) return;
 
@@ -228,18 +229,26 @@ export class Markmap {
 
     const { lineWidth, paddingX, spacingHorizontal, spacingVertical } =
       this.options;
+    // 调整布局参数以解决宽度和高度问题
     const layout = flextree<INode>({})
       .children((d) => {
         if (!d.payload?.fold) return d.children;
       })
       .nodeSize((node) => {
         const [width, height] = node.data.state.size;
-        return [height, width + (width ? paddingX * 2 : 0) + spacingHorizontal];
+        // 减少水平间距，增加垂直间距
+        return [
+          width + (width ? paddingX * 2 : 0) + spacingHorizontal * 0.3, // 减少水平间距
+          height + spacingVertical * 20, // 增加垂直间距
+        ];
       })
       .spacing((a, b) => {
+        // 调整节点间距
         return (
-          (a.parent === b.parent ? spacingVertical : spacingVertical * 2) +
-          lineWidth(a.data)
+          (a.parent === b.parent
+            ? spacingVertical * 1.5
+            : spacingVertical * 25) +
+          lineWidth(a.data) * 2
         );
       });
     const tree = layout.hierarchy(this.state.data);
@@ -247,11 +256,12 @@ export class Markmap {
     const fnodes = tree.descendants();
     fnodes.forEach((fnode) => {
       const node = fnode.data;
+      // 确保节点位置正确
       node.state.rect = {
-        x: fnode.y,
-        y: fnode.x - fnode.xSize / 2,
-        width: fnode.ySize - spacingHorizontal,
-        height: fnode.xSize,
+        x: fnode.x - fnode.xSize / 2,
+        y: fnode.y - 10,
+        width: fnode.xSize,
+        height: fnode.ySize - spacingVertical,
       };
     });
     this.state.rect = {
@@ -444,16 +454,21 @@ export class Markmap {
       .enter()
       .append('foreignObject')
       .attr('class', 'markmap-foreign')
-      .attr('x', paddingX)
-      .attr('y', 0)
+      .attr('x', paddingX + 20)
+      .attr('y', 25)
       .style('opacity', 0)
       .on('mousedown', stopPropagation)
       .on('dblclick', stopPropagation);
     mmFoEnter
       // The outer `<div>` with a width of `maxWidth`
       .append<HTMLDivElement>('xhtml:div')
+      .style('width', '100%')
+      .style('height', '100%')
+      .style('display', 'flex') // 添加 flex 布局
+      .style('align-items', 'center') // 垂直居中
       // The inner `<div>` with `display: inline-block` to get the proper width
       .append<HTMLDivElement>('xhtml:div')
+      .style('display', 'inline-block') // 保持原有样式
       .html((d) => d.content)
       .attr('xmlns', 'http://www.w3.org/1999/xhtml');
     mmFoEnter.each(function () {
@@ -491,7 +506,7 @@ export class Markmap {
       .attr('d', (d) => {
         const originRect = getOriginSourceRect(d.target);
         const pathOrigin: [number, number] = [
-          originRect.x + originRect.width,
+          originRect.x + originRect.width + lineWidth(d.target) / 2,
           originRect.y + originRect.height,
         ];
         return linkShape({ source: pathOrigin, target: pathOrigin });
@@ -518,9 +533,8 @@ export class Markmap {
 
     mmGEnter.attr('transform', (d) => {
       const originRect = getOriginSourceRect(d);
-      return `translate(${originRect.x + originRect.width - d.state.rect.width},${
-        originRect.y + originRect.height - d.state.rect.height
-      })`;
+      // 调整节点位置，减少偏移
+      return `translate(${originRect.x + originRect.width - d.state.rect.width},${originRect.y + originRect.height - d.state.rect.height})`;
     });
     this.transition(mmGExit)
       .attr('transform', (d) => {
@@ -546,11 +560,13 @@ export class Markmap {
       .attr('x1', (d) => d.state.rect.width)
       .attr('x2', (d) => d.state.rect.width);
     mmLineMerge
-      .attr('y1', (d) => d.state.rect.height + lineWidth(d) / 2)
-      .attr('y2', (d) => d.state.rect.height + lineWidth(d) / 2);
+      .attr('x1', (d) => d.state.rect.width + lineWidth(d) / 2)
+      .attr('x2', (d) => d.state.rect.width + lineWidth(d) / 2)
+      .attr('y1', 50)
+      .attr('y2', (d) => d.state.rect.height + 2);
     this.transition(mmLineMerge)
-      .attr('x1', -1)
-      .attr('x2', (d) => d.state.rect.width + 2)
+      .attr('y1', 50)
+      .attr('y2', (d) => d.state.rect.height + 2) // 缩短节点内部的竖线
       .attr('stroke', (d) => color(d))
       .attr('stroke-width', lineWidth);
 
@@ -559,22 +575,23 @@ export class Markmap {
     );
     this.transition(mmCircleExit).attr('r', 0).attr('stroke-width', 0);
     mmCircleMerge
-      .attr('cx', (d) => d.state.rect.width)
-      .attr('cy', (d) => d.state.rect.height + lineWidth(d) / 2);
+      .attr('cx', (d) => d.state.rect.width + lineWidth(d) / 2)
+      .attr('cy', (d) => d.state.rect.height);
     this.transition(mmCircleMerge).attr('r', 6).attr('stroke-width', '1.5');
 
     this.transition(mmFoExit).style('opacity', 0);
     mmFoMerge
       .attr('width', (d) => Math.max(0, d.state.rect.width - paddingX * 2))
-      .attr('height', (d) => d.state.rect.height);
+      .attr('height', (d) => d.state.rect.height)
+      .attr('y', 25);
     this.transition(mmFoMerge).style('opacity', 1);
 
     this.transition(mmPathExit)
       .attr('d', (d) => {
         const targetRect = getOriginTargetRect(d.target);
         const pathTarget: [number, number] = [
-          targetRect.x + targetRect.width,
-          targetRect.y + targetRect.height + lineWidth(d.target) / 2,
+          targetRect.x + targetRect.width + lineWidth(d.target) / 2,
+          targetRect.y,
         ];
         return linkShape({ source: pathTarget, target: pathTarget });
       })
@@ -587,19 +604,28 @@ export class Markmap {
       .attr('d', (d) => {
         const origSource = d.source;
         const origTarget = d.target;
-        const source: [number, number] = [
-          origSource.state.rect.x + origSource.state.rect.width,
-          origSource.state.rect.y +
-            origSource.state.rect.height +
-            lineWidth(origSource) / 2,
-        ];
-        const target: [number, number] = [
-          origTarget.state.rect.x,
-          origTarget.state.rect.y +
-            origTarget.state.rect.height +
-            lineWidth(origTarget) / 2,
-        ];
-        return linkShape({ source, target });
+
+        const sourceX =
+          origSource.state.rect.x +
+          origSource.state.rect.width +
+          lineWidth(origSource) / 2;
+        const sourceY = origSource.state.rect.y + origSource.state.rect.height;
+
+        const targetX =
+          origTarget.state.rect.x +
+          origTarget.state.rect.width +
+          lineWidth(origTarget) / 2;
+        const targetY = origTarget.state.rect.y + 50;
+
+        // 创建更长的连接线
+        // 使用三次贝塞尔曲线，控制点位置决定弧度和长度
+        const verticalDistance = Math.abs(targetY - sourceY);
+        const controlOffset = verticalDistance * 0.7; // 控制弧度
+
+        return `M${sourceX},${sourceY} 
+            C${sourceX},${sourceY + controlOffset} 
+             ${targetX},${targetY - controlOffset} 
+             ${targetX},${targetY}`;
       });
 
     if (autoFit) this.fit();
@@ -623,17 +649,21 @@ export class Markmap {
     const { x1, y1, x2, y2 } = this.state.rect;
     const naturalWidth = x2 - x1;
     const naturalHeight = y2 - y1;
+
+    // 调整缩放比例，更好地适应垂直方向
     const scale = Math.min(
-      (offsetWidth / naturalWidth) * fitRatio,
-      (offsetHeight / naturalHeight) * fitRatio,
+      (offsetWidth / naturalWidth) * fitRatio * 0.7, // 减少水平缩放
+      (offsetHeight / naturalHeight) * fitRatio * 1.5, // 增加垂直缩放
       maxScale,
     );
+
     const initialZoom = zoomIdentity
       .translate(
         (offsetWidth - naturalWidth * scale) / 2 - x1 * scale,
         (offsetHeight - naturalHeight * scale) / 2 - y1 * scale,
       )
       .scale(scale);
+
     return this.transition(this.svg)
       .call(this.zoom.transform, initialZoom)
       .end()
